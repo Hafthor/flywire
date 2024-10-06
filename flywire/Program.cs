@@ -107,7 +107,10 @@ public partial class Program {
 
     private static readonly Regex RxSpaces = RegexSpaces();
 
-    public static void Main(string[] args) {
+    private static readonly string Path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) +
+                                          "/dev/notgithub/flywire/";
+    
+    public static int Main(string[] args) {
         var sw = Stopwatch.StartNew();
 
         // the model
@@ -456,14 +459,12 @@ public partial class Program {
         });
         
         Console.WriteLine("done - " + sw.Elapsed);
+        return 0;
     }
 
     private static string AppendLine(string messages, string message) {
         return message == null ? messages : messages == null ? message : messages + Environment.NewLine + message;
     }
-
-    private static readonly string Path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) +
-                                          "/dev/notgithub/flywire/";
 
     public static void ReadCsvGzFile(string filename, string[] header, Func<string[], string> callback) {
         ReadCsvGzFile(filename, h => {
