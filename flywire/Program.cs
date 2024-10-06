@@ -351,7 +351,7 @@ public partial class Program {
         });
         
         // add the neuropils that are missing in the synapse_attachment_rates data
-        //neuropils.Add("UNASGD", new Neuropil("UNASGD"));
+        neuropils.Add("UNASGD", new Neuropil("UNASGD"));
 
         {
             Cell lastPre = null, lastPost = null;
