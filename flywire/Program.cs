@@ -10,6 +10,8 @@ public class Neuropil(string name) {
     public int preCountTotal, preCountProof, postCountTotal, postCountProof;
     public float preProofRatio, postProofRatio;
     public readonly List<Connection> connections = new();
+
+    public override string ToString() => $"Neuropil {name}";
 }
 
 public class Label(string label) {
@@ -19,6 +21,8 @@ public class Label(string label) {
     public User user;
     public (int x, int y, int z) position;
     public long supervoxelId;
+
+    public override string ToString() => $"Label {label} {labelId}";
 }
 
 public class Cell(long id) {
@@ -42,7 +46,8 @@ public class Cell(long id) {
     public readonly HashSet<string> connectivityTags = [];
     
     // consolidated_cell_types
-    public string primaryType, additionalTypes;
+    public string primaryType;
+    public readonly List<string> additionalTypes = [];
     
     // labels
     public readonly List<Label> labels = [];
@@ -72,11 +77,14 @@ public class Cell(long id) {
     public string visualFamily, visualSubsystem, visualCategory, visualType, visualSide;
     
     public readonly List<Synapse> preSynapses = [], postSynapses = [];
+    
+    public override string ToString() => $"Cell {id} {name}";
 }
 
 public class Synapse(Cell pre, Cell post) {
     public readonly Cell pre = pre, post = post;
     public readonly List<(int x, int y, int z)> coords = [];
+    public override string ToString() => $"Synapse {pre} -> {post}";
 }
 
 public class Connection(Cell pre, Cell post) {
@@ -84,11 +92,13 @@ public class Connection(Cell pre, Cell post) {
     public Neuropil neuropil;
     public short synCount;
     public string ntType;
+    public override string ToString() => $"Connection {pre} -> {post} in {neuropil}";
 }
 
 public class User(short id) {
     public readonly short id = id;
     public string name, affiliation;
+    public override string ToString() => $"User {id} {name}";
 }
 
 public partial class Program {
@@ -182,7 +192,9 @@ public partial class Program {
                 cells.Add(id, cell = new Cell(id));
             }
             cell.primaryType = columns[1];
-            cell.additionalTypes = columns[2];
+            var additionalTypes = columns[2];
+            if (additionalTypes != "")
+                cell.additionalTypes.AddRange(additionalTypes.Split(','));
             return message;
         });
 
@@ -211,16 +223,19 @@ public partial class Program {
                 message = $"missing cell for root_id {id}";
                 cells.Add(id, cell = new Cell(id));
             }
-            var label = new Label(columns[1]) {
+            var labelName = columns[1];
+            (int x, int y, int z) position = default;
+            short userId = short.Parse(columns[2]);
+            if (columns[3] != "") {
+                string[] xyz = RxSpaces.Replace(columns[3], " ").TrimStart('[').TrimStart(' ').TrimEnd(']').Split(' ');
+                position = (int.Parse(xyz[0]), int.Parse(xyz[1]), int.Parse(xyz[2]));
+            }
+            var label = new Label(labelName) {
+                position = position,
                 supervoxelId = long.Parse(columns[4]),
                 labelId = int.Parse(columns[5]),
                 dateCreated = DateTime.Parse(columns[6]).ToUniversalTime()
             };
-            if (columns[3] != "") {
-                string[] xyz = RxSpaces.Replace(columns[3], " ").TrimStart('[').TrimStart(' ').TrimEnd(']').Split(' ');
-                label.position = (int.Parse(xyz[0]), int.Parse(xyz[1]), int.Parse(xyz[2]));
-            }
-            short userId = short.Parse(columns[2]);
             if (!users.TryGetValue(userId, out var user)) {
                 users.Add(userId, user = new User(userId) {
                     name = columns[7],
@@ -247,7 +262,7 @@ public partial class Program {
 
             if (!cellGroups.TryGetValue(cell.group, out var group))
                 cellGroups.Add(cell.group, group = new());
-            group.Add(long.Parse(columns[0]), cell);
+            group.Add(id, cell);
             return message;
         });
         
@@ -261,8 +276,9 @@ public partial class Program {
                 message = $"missing cell for root_id {id}";
                 cells.Add(id, cell = new Cell(id));
             }
-            if (cell.group == null) cell.group = columns[1];
-            else Contract.Assert(cell.group == columns[1]);
+            string group = columns[1];
+            if (cell.group == null) cell.group = group;
+            else Contract.Assert(cell.group == group);
             cell.ntType = columns[2];
             cell.ntTypeScore = float.Parse(columns[3]);
             cell.daAvg = float.Parse(columns[4]);
@@ -322,31 +338,34 @@ public partial class Program {
                 message = $"missing cell for root_id {id}";
                 cells.Add(id, cell = new Cell(id));
             }
-            if (columns[1] != "")
-                if (columns[1].StartsWith("['") && columns[1].EndsWith("']"))
-                    cell.processedLabels.AddRange(columns[1][2..^2].Split("','"));
+            var labels = columns[1];
+            if (labels != "")
+                if (labels.StartsWith("['") && labels.EndsWith("']"))
+                    cell.processedLabels.AddRange(labels[2..^2].Split("','"));
                 else
-                    throw new Exception("processed_labels: unexpected format " + columns[1]);
+                    throw new Exception("processed_labels: unexpected format " + labels);
             return message;
         });
 
         ReadCsvGzFile("synapse_attachment_rates", [
             "neuropil", "count_total", "count_proof", "proof_ratio", "side"
         ], columns => {
-            if (!neuropils.TryGetValue(columns[0], out var n))
-                neuropils[columns[0]] = n = new Neuropil(columns[0]);
+            var name = columns[0];
+            if (!neuropils.TryGetValue(name, out var n))
+                neuropils[name] = n = new Neuropil(name);
             int countTotal = int.Parse(columns[1]), countProof = int.Parse(columns[2]);
             float proofRatio = float.Parse(columns[3]);
-            if (columns[4] == "pre") {
+            string side = columns[4];
+            if (side == "pre") {
                 n.preCountTotal = countTotal;
                 n.preCountProof = countProof;
                 n.preProofRatio = proofRatio;
-            } else if (columns[4] == "post") {
+            } else if (side == "post") {
                 n.postCountTotal = countTotal;
                 n.postCountProof = countProof;
                 n.postProofRatio = proofRatio;
             } else
-                return $"unknown side {columns[4]}";
+                return $"unknown side {side}";
             return null;
         });
         
@@ -361,22 +380,23 @@ public partial class Program {
             ], columns => {
                 string message = null;
                 Cell pre = lastPre, post = lastPost;
-                if (columns[0] != "") {
-                    long preId = long.Parse(columns[0]);
+                string c0 = columns[0], c1 = columns[1];
+                if (c0 != "") {
+                    long preId = long.Parse(c0);
                     if (!cells.TryGetValue(preId, out pre)) {
                         message = $"missing pre cell for root_id {preId}";
                         cells.Add(preId, pre = new Cell(preId));
                     }
                 }
-                if (columns[1] != "") {
-                    long postId = long.Parse(columns[1]);
+                if (c1 != "") {
+                    long postId = long.Parse(c1);
                     if (!cells.TryGetValue(postId, out post)) {
-                        message = $"missing post cell for root_id {postId}";
+                        message = AppendLine(message, $"missing post cell for root_id {postId}");
                         cells.Add(postId, post = new Cell(postId));
                     }
                 }
                 Synapse synapse = lastSynapse;
-                if (columns[0] != "" || columns[1] != "") {
+                if (c0 != "" || c1 != "") {
                     synapse = new Synapse(lastPre = pre, lastPost = post);
                     synapses.Add(lastSynapse = synapse);
                     post.preSynapses.Add(synapse);
@@ -414,18 +434,19 @@ public partial class Program {
                 cells.Add(preId, pre = new Cell(preId));
             }
             if (!cells.TryGetValue(postId, out var post)) {
-                message = $"missing post cell for root_id {postId}";
+                message = AppendLine(message, $"missing post cell for root_id {postId}");
                 cells.Add(postId, post = new Cell(postId));
             }
+            var neuropilName = columns[2];
             var cn = new Connection(pre, post) {
-                neuropil = neuropils.GetValueOrDefault(columns[2]),
+                neuropil = neuropils.GetValueOrDefault(neuropilName),
                 synCount = short.Parse(columns[3]),
                 ntType = columns[4]
             };
             if (cn.neuropil == null) {
-                message = $"missing neuropil {columns[2]}";
-                cn.neuropil = new Neuropil(columns[2]);
-                neuropils.Add(columns[2], cn.neuropil);
+                message = AppendLine(message, $"missing neuropil {neuropilName}");
+                cn.neuropil = new Neuropil(neuropilName);
+                neuropils.Add(neuropilName, cn.neuropil);
             }
             cn.pre.post.Add(cn);
             cn.post.pre.Add(cn);
@@ -435,6 +456,10 @@ public partial class Program {
         });
         
         Console.WriteLine("done - " + sw.Elapsed);
+    }
+
+    private static string AppendLine(string messages, string message) {
+        return message == null ? messages : messages == null ? message : messages + Environment.NewLine + message;
     }
 
     private static readonly string Path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) +
