@@ -5,10 +5,21 @@ using System.Text.RegularExpressions;
 
 namespace flywire;
 
+public class FlyBrain {
+    public readonly List<Connection> connections = [];
+    public readonly Dictionary<long, Cell> cells = new();
+    public readonly Dictionary<int, User> users = new();
+    public readonly Dictionary<string, Neuropil> neuropils = new();
+    public readonly List<Synapse> synapses = [];
+    public readonly Dictionary<string, Dictionary<long, Cell>> cellGroups = new();
+}
+
+public record struct Point3D(int x, int y, int z);
+
 public class Neuropil(string name) {
     public readonly string name = name;
     public int preCountTotal, preCountProof, postCountTotal, postCountProof;
-    public float preProofRatio, postProofRatio;
+    public double preProofRatio, postProofRatio;
     public readonly List<Connection> connections = new();
 
     public override string ToString() => $"Neuropil {name}";
@@ -19,7 +30,7 @@ public class Label(string label) {
     public int labelId;
     public DateTime dateCreated;
     public User user;
-    public (int x, int y, int z) position;
+    public Point3D position;
     public long supervoxelId;
 
     public override string ToString() => $"Label {label} {labelId}";
@@ -33,12 +44,11 @@ public class Cell(long id) {
     public long surfaceAreaNm2, volumeNm3;
     
     // classification
-    public string flow, superClass, klass, subClass, cellType, hemibrainType, hemilineage, side, nerve;
+    public string flow, superClass, @class, subClass, cellType, hemibrainType, hemilineage, side, nerve;
 
     // column_assignment
     public string colHemisphere, colType;
-    public int columnId;
-    public sbyte colX, colY, colP, colQ;
+    public int columnId, colX, colY, colP, colQ;
     
     public readonly List<Connection> pre = [], post = [];
     
@@ -53,7 +63,7 @@ public class Cell(long id) {
     public readonly List<Label> labels = [];
 
     // coordinates
-    public (int x, int y, int z) coordPosition;
+    public Point3D coordPosition;
     public long coordSupervoxelId;
     
     // names
@@ -61,14 +71,12 @@ public class Cell(long id) {
     
     // neurons
     public string ntType;
-    public float ntTypeScore, daAvg, serAvg, gabaAvg, glutAvg, achAvg, octAvg;
+    public double ntTypeScore, daAvg, serAvg, gabaAvg, glutAvg, achAvg, octAvg;
 
     // neuropil
     public int totalInputSynapses, totalInputPartners, totalOutputSynapses, totalOutputPartners;
-    public readonly Dictionary<string, int> inputSynapses = new(),
-        inputPartners = new(),
-        outputSynapses = new(),
-        outputPartners = new();
+    public readonly Dictionary<string, int> inputSynapses = new(), inputPartners = new(),
+        outputSynapses = new(), outputPartners = new();
     
     // processed_labels
     public readonly List<string> processedLabels = [];
@@ -83,20 +91,20 @@ public class Cell(long id) {
 
 public class Synapse(Cell pre, Cell post) {
     public readonly Cell pre = pre, post = post;
-    public readonly List<(int x, int y, int z)> coords = [];
+    public readonly List<Point3D> coords = [];
     public override string ToString() => $"Synapse {pre} -> {post}";
 }
 
 public class Connection(Cell pre, Cell post) {
     public readonly Cell pre = pre, post = post;
     public Neuropil neuropil;
-    public short synCount;
+    public int synCount;
     public string ntType;
     public override string ToString() => $"Connection {pre} -> {post} in {neuropil}";
 }
 
-public class User(short id) {
-    public readonly short id = id;
+public class User(int id) {
+    public readonly int id = id;
     public string name, affiliation;
     public override string ToString() => $"User {id} {name}";
 }
@@ -113,23 +121,17 @@ public partial class Program {
     public static int Main(string[] args) {
         var sw = Stopwatch.StartNew();
 
-        // the model
-        List<Connection> connections = [];
-        Dictionary<long, Cell> cells = new();
-        Dictionary<short, User> users = new();
-        Dictionary<string, Neuropil> neuropils = new();
-        List<Synapse> synapses = [];
-        Dictionary<string, Dictionary<long, Cell>> cellGroups = new();
+        var flyBrain = new FlyBrain();
 
         ReadCsvGzFile("classification", [
             "root_id", "flow", "super_class", "class", "sub_class",
             "cell_type", "hemibrain_type", "hemilineage", "side", "nerve"
         ], columns => {
             long id = long.Parse(columns[0]);
-            cells.Add(id, new Cell(id) {
+            flyBrain.cells.Add(id, new Cell(id) {
                 flow = columns[1],
                 superClass = columns[2],
-                klass = columns[3],
+                @class = columns[3],
                 subClass = columns[4],
                 cellType = columns[5],
                 hemibrainType = columns[6],
@@ -143,9 +145,9 @@ public partial class Program {
         ReadCsvGzFile("cell_stats", ["root_id", "length_nm", "area_nm", "size_nm"], columns => {
             string message = null;
             long id = long.Parse(columns[0]);
-            if (!cells.TryGetValue(id, out var cell)) {
+            if (!flyBrain.cells.TryGetValue(id, out var cell)) {
                 message = $"missing cell for root_id {id}";
-                cells.Add(id, cell = new Cell(id));
+                flyBrain.cells.Add(id, cell = new Cell(id));
             }
             cell.cableLengthNm = int.Parse(columns[1]);
             cell.surfaceAreaNm2 = long.Parse(columns[2]);
@@ -158,26 +160,26 @@ public partial class Program {
         ], columns => {
             string message = null;
             long id = long.Parse(columns[0]);
-            if (!cells.TryGetValue(id, out var cell)) {
+            if (!flyBrain.cells.TryGetValue(id, out var cell)) {
                 message = $"missing cell for root_id {id}";
-                cells.Add(id, cell = new Cell(id));
+                flyBrain.cells.Add(id, cell = new Cell(id));
             }
             cell.colHemisphere = columns[1];
             cell.colType = columns[2];
             cell.columnId = int.Parse(columns[3]);
-            cell.colX = sbyte.Parse(columns[4]);
-            cell.colY = sbyte.Parse(columns[5]);
-            cell.colP = sbyte.Parse(columns[6]);
-            cell.colQ = sbyte.Parse(columns[7]);
+            cell.colX = int.Parse(columns[4]);
+            cell.colY = int.Parse(columns[5]);
+            cell.colP = int.Parse(columns[6]);
+            cell.colQ = int.Parse(columns[7]);
             return message;
         });
         
         ReadCsvGzFile("connectivity_tags", ["root_id", "connectivity_tag"], columns => {
             string message = null;
             long id = long.Parse(columns[0]);
-            if (!cells.TryGetValue(id, out var cell)) {
+            if (!flyBrain.cells.TryGetValue(id, out var cell)) {
                 message = $"missing cell for root_id {id}";
-                cells.Add(id, cell = new Cell(id));
+                flyBrain.cells.Add(id, cell = new Cell(id));
             }
             if (columns[1] != "")
                 foreach (var tag in columns[1].Split(','))
@@ -190,9 +192,9 @@ public partial class Program {
         ], columns => {
             string message = null;
             long id = long.Parse(columns[0]);
-            if (!cells.TryGetValue(id, out var cell)) {
+            if (!flyBrain.cells.TryGetValue(id, out var cell)) {
                 message = $"missing cell for root_id {id}";
-                cells.Add(id, cell = new Cell(id));
+                flyBrain.cells.Add(id, cell = new Cell(id));
             }
             cell.primaryType = columns[1];
             var additionalTypes = columns[2];
@@ -204,13 +206,13 @@ public partial class Program {
         ReadCsvGzFile("coordinates", ["root_id", "position", "supervoxel_id"], columns => {
             string message = null;
             long id = long.Parse(columns[0]);
-            if (!cells.TryGetValue(id, out var cell)) {
+            if (!flyBrain.cells.TryGetValue(id, out var cell)) {
                 message = $"missing cell for root_id {id}";
-                cells.Add(id, cell = new Cell(id));
+                flyBrain.cells.Add(id, cell = new Cell(id));
             }
             if (columns[1] != "") {
                 string[] xyz = RxSpaces.Replace(columns[1], " ").TrimStart('[').TrimStart(' ').TrimEnd(']').Split(' ');
-                cell.coordPosition = (int.Parse(xyz[0]), int.Parse(xyz[1]), int.Parse(xyz[2]));
+                cell.coordPosition = new Point3D(int.Parse(xyz[0]), int.Parse(xyz[1]), int.Parse(xyz[2]));
             }
             cell.coordSupervoxelId = long.Parse(columns[2]);
             return message;
@@ -222,16 +224,16 @@ public partial class Program {
         ], columns => {
             string message = null;
             long id = long.Parse(columns[0]);
-            if (!cells.TryGetValue(id, out var cell)) {
+            if (!flyBrain.cells.TryGetValue(id, out var cell)) {
                 message = $"missing cell for root_id {id}";
-                cells.Add(id, cell = new Cell(id));
+                flyBrain.cells.Add(id, cell = new Cell(id));
             }
             var labelName = columns[1];
-            (int x, int y, int z) position = default;
-            short userId = short.Parse(columns[2]);
+            Point3D position = default;
+            int userId = int.Parse(columns[2]);
             if (columns[3] != "") {
                 string[] xyz = RxSpaces.Replace(columns[3], " ").TrimStart('[').TrimStart(' ').TrimEnd(']').Split(' ');
-                position = (int.Parse(xyz[0]), int.Parse(xyz[1]), int.Parse(xyz[2]));
+                position = new Point3D(int.Parse(xyz[0]), int.Parse(xyz[1]), int.Parse(xyz[2]));
             }
             var label = new Label(labelName) {
                 position = position,
@@ -239,14 +241,14 @@ public partial class Program {
                 labelId = int.Parse(columns[5]),
                 dateCreated = DateTime.Parse(columns[6]).ToUniversalTime()
             };
-            if (!users.TryGetValue(userId, out var user)) {
-                users.Add(userId, user = new User(userId) {
+            if (!flyBrain.users.TryGetValue(userId, out var user)) {
+                flyBrain.users.Add(userId, user = new User(userId) {
                     name = columns[7],
                     affiliation = columns[8]
                 });
             } else {
-                Contract.Assert(users[userId].name == columns[7]);
-                Contract.Assert(users[userId].affiliation == columns[8]);
+                Contract.Assert(flyBrain.users[userId].name == columns[7]);
+                Contract.Assert(flyBrain.users[userId].affiliation == columns[8]);
             }
             label.user = user;
             cell.labels.Add(label);
@@ -256,15 +258,15 @@ public partial class Program {
         ReadCsvGzFile("names", ["root_id", "name", "group"], columns => {
             string message = null;
             long id = long.Parse(columns[0]);
-            if (!cells.TryGetValue(id, out var cell)) {
+            if (!flyBrain.cells.TryGetValue(id, out var cell)) {
                 message = $"missing cell for root_id {id}";
-                cells.Add(id, cell = new Cell(id));
+                flyBrain.cells.Add(id, cell = new Cell(id));
             }
             cell.name = columns[1];
             cell.group = columns[2];
 
-            if (!cellGroups.TryGetValue(cell.group, out var group))
-                cellGroups.Add(cell.group, group = new());
+            if (!flyBrain.cellGroups.TryGetValue(cell.group, out var group))
+                flyBrain.cellGroups.Add(cell.group, group = new());
             group.Add(id, cell);
             return message;
         });
@@ -275,21 +277,21 @@ public partial class Program {
         ], columns => {
             string message = null;
             long id = long.Parse(columns[0]);
-            if (!cells.TryGetValue(id, out var cell)) {
+            if (!flyBrain.cells.TryGetValue(id, out var cell)) {
                 message = $"missing cell for root_id {id}";
-                cells.Add(id, cell = new Cell(id));
+                flyBrain.cells.Add(id, cell = new Cell(id));
             }
             string group = columns[1];
             if (cell.group == null) cell.group = group;
             else Contract.Assert(cell.group == group);
             cell.ntType = columns[2];
-            cell.ntTypeScore = float.Parse(columns[3]);
-            cell.daAvg = float.Parse(columns[4]);
-            cell.serAvg = float.Parse(columns[5]);
-            cell.gabaAvg = float.Parse(columns[6]);
-            cell.glutAvg = float.Parse(columns[7]);
-            cell.achAvg = float.Parse(columns[8]);
-            cell.octAvg = float.Parse(columns[9]);
+            cell.ntTypeScore = double.Parse(columns[3]);
+            cell.daAvg = double.Parse(columns[4]);
+            cell.serAvg = double.Parse(columns[5]);
+            cell.gabaAvg = double.Parse(columns[6]);
+            cell.glutAvg = double.Parse(columns[7]);
+            cell.achAvg = double.Parse(columns[8]);
+            cell.octAvg = double.Parse(columns[9]);
             return message;
         });
         
@@ -315,9 +317,9 @@ public partial class Program {
             }, columns => {
                 string message = null;
                 long id = long.Parse(columns[0]);
-                if (!cells.TryGetValue(id, out var c)) {
+                if (!flyBrain.cells.TryGetValue(id, out var c)) {
                     message = $"missing cell for root_id {id}";
-                    cells.Add(id, c = new Cell(id));
+                    flyBrain.cells.Add(id, c = new Cell(id));
                 }
                 c.totalInputSynapses = int.Parse(columns[1]);
                 c.totalInputPartners = int.Parse(columns[2]);
@@ -337,9 +339,9 @@ public partial class Program {
         ReadCsvGzFile("processed_labels", ["root_id", "processed_labels"], columns => {
             string message = null;
             long id = long.Parse(columns[0]);
-            if (!cells.TryGetValue(id, out var cell)) {
+            if (!flyBrain.cells.TryGetValue(id, out var cell)) {
                 message = $"missing cell for root_id {id}";
-                cells.Add(id, cell = new Cell(id));
+                flyBrain.cells.Add(id, cell = new Cell(id));
             }
             var labels = columns[1];
             if (labels != "")
@@ -354,10 +356,10 @@ public partial class Program {
             "neuropil", "count_total", "count_proof", "proof_ratio", "side"
         ], columns => {
             var name = columns[0];
-            if (!neuropils.TryGetValue(name, out var n))
-                neuropils[name] = n = new Neuropil(name);
+            if (!flyBrain.neuropils.TryGetValue(name, out var n))
+                flyBrain.neuropils[name] = n = new Neuropil(name);
             int countTotal = int.Parse(columns[1]), countProof = int.Parse(columns[2]);
-            float proofRatio = float.Parse(columns[3]);
+            double proofRatio = double.Parse(columns[3]);
             string side = columns[4];
             if (side == "pre") {
                 n.preCountTotal = countTotal;
@@ -373,7 +375,7 @@ public partial class Program {
         });
         
         // add the neuropils that are missing in the synapse_attachment_rates data
-        neuropils.Add("UNASGD", new Neuropil("UNASGD"));
+        flyBrain.neuropils.Add("UNASGD", new Neuropil("UNASGD"));
 
         {
             Cell lastPre = null, lastPost = null;
@@ -386,26 +388,26 @@ public partial class Program {
                 string c0 = columns[0], c1 = columns[1];
                 if (c0 != "") {
                     long preId = long.Parse(c0);
-                    if (!cells.TryGetValue(preId, out pre)) {
+                    if (!flyBrain.cells.TryGetValue(preId, out pre)) {
                         message = $"missing pre cell for root_id {preId}";
-                        cells.Add(preId, pre = new Cell(preId));
+                        flyBrain.cells.Add(preId, pre = new Cell(preId));
                     }
                 }
                 if (c1 != "") {
                     long postId = long.Parse(c1);
-                    if (!cells.TryGetValue(postId, out post)) {
+                    if (!flyBrain.cells.TryGetValue(postId, out post)) {
                         message = AppendLine(message, $"missing post cell for root_id {postId}");
-                        cells.Add(postId, post = new Cell(postId));
+                        flyBrain.cells.Add(postId, post = new Cell(postId));
                     }
                 }
                 Synapse synapse = lastSynapse;
                 if (c0 != "" || c1 != "") {
                     synapse = new Synapse(lastPre = pre, lastPost = post);
-                    synapses.Add(lastSynapse = synapse);
+                    flyBrain.synapses.Add(lastSynapse = synapse);
                     post.preSynapses.Add(synapse);
                     pre.postSynapses.Add(synapse);
                 }
-                synapse.coords.Add((int.Parse(columns[2]), int.Parse(columns[3]), int.Parse(columns[4])));
+                synapse.coords.Add(new Point3D(int.Parse(columns[2]), int.Parse(columns[3]), int.Parse(columns[4])));
                 return message;
             });
         }
@@ -415,9 +417,9 @@ public partial class Program {
         ], columns => {
             string message = null;
             long id = long.Parse(columns[0]);
-            if (!cells.TryGetValue(id, out var cell)) {
+            if (!flyBrain.cells.TryGetValue(id, out var cell)) {
                 message = $"missing cell for root_id {id}";
-                cells.Add(id, cell = new Cell(id));
+                flyBrain.cells.Add(id, cell = new Cell(id));
             }
             cell.visualType = columns[1];
             cell.visualFamily = columns[2];
@@ -432,28 +434,28 @@ public partial class Program {
         ], columns => {
             string message = null;
             long preId = long.Parse(columns[0]), postId = long.Parse(columns[1]);
-            if (!cells.TryGetValue(preId, out var pre)) {
+            if (!flyBrain.cells.TryGetValue(preId, out var pre)) {
                 message = $"missing pre cell for root_id {preId}";
-                cells.Add(preId, pre = new Cell(preId));
+                flyBrain.cells.Add(preId, pre = new Cell(preId));
             }
-            if (!cells.TryGetValue(postId, out var post)) {
+            if (!flyBrain.cells.TryGetValue(postId, out var post)) {
                 message = AppendLine(message, $"missing post cell for root_id {postId}");
-                cells.Add(postId, post = new Cell(postId));
+                flyBrain.cells.Add(postId, post = new Cell(postId));
             }
             var neuropilName = columns[2];
             var cn = new Connection(pre, post) {
-                neuropil = neuropils.GetValueOrDefault(neuropilName),
-                synCount = short.Parse(columns[3]),
+                neuropil = flyBrain.neuropils.GetValueOrDefault(neuropilName),
+                synCount = int.Parse(columns[3]),
                 ntType = columns[4]
             };
             if (cn.neuropil == null) {
                 message = AppendLine(message, $"missing neuropil {neuropilName}");
                 cn.neuropil = new Neuropil(neuropilName);
-                neuropils.Add(neuropilName, cn.neuropil);
+                flyBrain.neuropils.Add(neuropilName, cn.neuropil);
             }
             cn.pre.post.Add(cn);
             cn.post.pre.Add(cn);
-            connections.Add(cn);
+            flyBrain.connections.Add(cn);
             cn.neuropil.connections.Add(cn);
             return message;
         });
@@ -481,9 +483,8 @@ public partial class Program {
                 string line = reader.ReadLine();
                 var h = line.Split(',');
                 header(h);
-                int recordNo = 0;
+                int recordNo = 0, backspaces = 0;
                 long bytes = line.Length + 1;
-                int backspaces = 0;
                 while ((line = reader.ReadLine()) != null) {
                     bytes += line.Length + 1;
                     string[] columns = new string[h.Length];
